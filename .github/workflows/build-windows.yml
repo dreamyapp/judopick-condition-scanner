@@ -1,0 +1,62 @@
+name: Windows 설치 파일 만들기
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "설치 파일을 올릴 GitHub 릴리스 태그"
+        required: true
+        default: "v0.3.0"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: 소스 받기
+        uses: actions/checkout@v4
+
+      - name: Python 준비
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: "x64"
+          cache: "pip"
+
+      - name: 필요한 프로그램 설치
+        run: python -m pip install -r requirements.txt
+
+      - name: 자동 테스트
+        run: python -m pytest -q
+
+      - name: Windows 실행기 만들기
+        run: python -m PyInstaller --noconfirm --clean condition_scanner_windows.spec
+
+      - name: Inno Setup 확인
+        shell: pwsh
+        run: |
+          $compiler = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $compiler)) {
+            choco install innosetup --yes --no-progress
+          }
+
+      - name: 쉬운 설치 프로그램 만들기
+        shell: pwsh
+        run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer_windows.iss'
+
+      - name: 빌드 결과 보관
+        uses: actions/upload-artifact@v4
+        with:
+          name: Judopick-ConditionScanner-Windows-x64
+          path: dist/Judopick-ConditionScanner-Windows-x64-Setup.exe
+          if-no-files-found: error
+
+      - name: 공개 다운로드에 설치 파일 올리기
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: gh release upload "$RELEASE_TAG" "dist/Judopick-ConditionScanner-Windows-x64-Setup.exe" --clobber
