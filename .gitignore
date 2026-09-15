@@ -1,0 +1,13 @@
+.env
+.DS_Store
+.venv/
+__pycache__/
+.pytest_cache/
+build/
+dist/
+*.spec.bak
+*.db
+*.db-shm
+*.db-wal
+credentials.json
+token.json

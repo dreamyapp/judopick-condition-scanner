@@ -1,0 +1,9 @@
+Flask==3.0.3
+python-dotenv==1.0.1
+requests==2.31.0
+websocket-client==1.8.0
+pywebview==6.1
+keyring==25.6.0
+pytest==9.0.2
+pyinstaller==6.16.0
+

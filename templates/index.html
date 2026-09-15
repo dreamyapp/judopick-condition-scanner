@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>주도픽 조건검색</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-wrap">
+      <div class="brand-mark" aria-hidden="true">주</div>
+      <div>
+        <h1>주도픽 조건검색</h1>
+        <p>원하는 종목을 쉽고 빠르게 찾습니다</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <span id="connectionStatus" class="status-pill status-off">키움 연결 필요</span>
+      <button id="guideButton" class="button button-guide" type="button">발급 가이드</button>
+      <button id="settingsButton" class="button button-light" type="button">API 키 설정·변경</button>
+    </div>
+  </header>
+
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="저장된 조건식">
+      <div class="sidebar-title">
+        <h2>내 조건식</h2>
+        <span id="conditionCount">0개</span>
+      </div>
+      <button id="newConditionButton" class="button button-primary button-wide" type="button">
+        ＋ 새 조건식
+      </button>
+      <button id="importKiwoomButton" class="button button-light button-wide" type="button">
+        영웅문 조건식 불러오기
+      </button>
+      <div id="conditionList" class="condition-list"></div>
+    </aside>
+
+    <main class="main-panel">
+      <section id="welcomePanel" class="welcome-panel">
+        <div class="welcome-icon" aria-hidden="true">⌕</div>
+        <h2>조건식을 선택해 주세요</h2>
+        <p>왼쪽에서 저장된 조건식을 선택하거나<br>새 조건식을 만들어 보세요.</p>
+        <button id="welcomeNewButton" class="button button-primary button-large" type="button">새 조건식 만들기</button>
+      </section>
+
+      <section id="editorPanel" class="editor-panel hidden">
+        <div class="editor-heading">
+          <div>
+            <label class="field-label" for="conditionName">조건식 이름</label>
+            <input id="conditionName" class="name-input" type="text" maxlength="50" placeholder="예: 거래량 급증주">
+          </div>
+          <span id="conditionTypeBadge" class="type-badge">직접 만든 조건식</span>
+        </div>
+
+        <div id="kiwoomInfo" class="info-box hidden">
+          <strong>영웅문에 저장된 조건식입니다.</strong>
+          <span>조건을 바꾸려면 영웅문에서 수정한 뒤 다시 불러와 주세요.</span>
+        </div>
+
+        <div id="customEditor">
+          <div class="tabs" role="tablist" aria-label="조건 입력 방법">
+            <button class="tab active" data-tab="simple" type="button" role="tab">하나씩 만들기</button>
+            <button class="tab" data-tab="paste" type="button" role="tab">전체 조건식 붙여넣기</button>
+          </div>
+
+          <div id="simpleTab" class="tab-panel">
+            <div class="section-block">
+              <h3>어느 시장에서 찾을까요?</h3>
+              <div class="choice-row">
+                <label class="check-card"><input id="marketKospi" type="checkbox" checked><span>코스피</span></label>
+                <label class="check-card"><input id="marketKosdaq" type="checkbox" checked><span>코스닥</span></label>
+              </div>
+            </div>
+
+            <div class="section-block">
+              <div class="section-title-row">
+                <div>
+                  <h3>검색 조건</h3>
+                  <p>입력한 조건을 모두 만족하는 종목을 찾습니다.</p>
+                </div>
+                <button id="addRuleButton" class="button button-light" type="button">＋ 조건 추가</button>
+              </div>
+              <div id="ruleList" class="rule-list"></div>
+            </div>
+
+            <div class="section-block compact-block">
+              <h3>검색에서 제외</h3>
+              <div class="choice-row wrap">
+                <label class="check-card"><input class="exclusion-check" type="checkbox" value="ETF" checked><span>ETF</span></label>
+                <label class="check-card"><input class="exclusion-check" type="checkbox" value="ETN" checked><span>ETN</span></label>
+                <label class="check-card"><input class="exclusion-check" type="checkbox" value="스팩" checked><span>스팩</span></label>
+                <label class="check-card"><input class="exclusion-check" type="checkbox" value="우선주"><span>우선주</span></label>
+              </div>
+            </div>
+          </div>
+
+          <div id="pasteTab" class="tab-panel hidden">
+            <div class="section-block paste-block">
+              <label class="field-label" for="conditionText">전체 조건식을 붙여넣어 주세요</label>
+              <textarea id="conditionText" rows="9" placeholder="조건식명: 거래량 급증주&#10;시장: 코스피, 코스닥&#10;등락률: 3% 이상&#10;거래대금: 100억 원 이상&#10;제외: ETF, ETN, 스팩"></textarea>
+              <button id="parseButton" class="button button-secondary button-large" type="button">조건식 확인</button>
+            </div>
+            <div id="parsePreview" class="preview-box hidden" aria-live="polite"></div>
+          </div>
+        </div>
+
+        <div class="editor-actions">
+          <div class="minor-actions">
+            <button id="copyButton" class="button button-light" type="button">조건식 복사</button>
+            <button id="deleteButton" class="button button-danger-text" type="button">삭제</button>
+          </div>
+          <button id="saveButton" class="button button-secondary" type="button">조건식 저장</button>
+        </div>
+
+        <section class="search-box">
+          <div id="searchReady" class="search-ready">
+            <div>
+              <h3>이 조건으로 종목을 찾아볼까요?</h3>
+              <p>현재 시세를 기준으로 검색합니다.</p>
+            </div>
+            <button id="searchButton" class="button button-search" type="button">종목 찾기</button>
+          </div>
+          <div id="searchProgress" class="search-progress hidden" aria-live="polite">
+            <div class="spinner" aria-hidden="true"></div>
+            <div class="progress-copy">
+              <strong id="progressMessage">종목을 찾고 있습니다.</strong>
+              <div class="progress-track"><span id="progressBar"></span></div>
+              <small id="progressPercent">0%</small>
+            </div>
+          </div>
+        </section>
+
+        <section id="resultsSection" class="results-section hidden">
+          <div class="results-heading">
+            <div>
+              <h2 id="resultsTitle">검색 결과</h2>
+              <p id="resultsTime"></p>
+            </div>
+            <button id="searchAgainButton" class="button button-light" type="button">다시 찾기</button>
+          </div>
+          <div id="resultsEmpty" class="results-empty hidden">
+            <strong>조건에 맞는 종목이 없습니다.</strong>
+            <span>조건 범위를 조금 넓혀 다시 찾아보세요.</span>
+          </div>
+          <div id="resultsTableWrap" class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>종목명</th><th>현재가</th><th>등락률</th><th>거래량</th><th>거래대금</th><th>발견 시각</th>
+                </tr>
+              </thead>
+              <tbody id="resultsBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <div class="modal-card">
+      <div class="modal-heading">
+        <div>
+          <h2 id="settingsTitle">키움 API 키 연결</h2>
+          <p id="settingsIntro">처음 한 번만 입력하면 다음부터 자동으로 연결됩니다.</p>
+        </div>
+        <button id="closeSettingsButton" class="icon-button" type="button" aria-label="닫기">×</button>
+      </div>
+      <button id="openGuideFromSettings" class="guide-help-button" type="button">
+        <strong>API 키가 아직 없으신가요?</strong>
+        <span>쉬운 발급 가이드 보기 →</span>
+      </button>
+
+      <section class="auto-key-box">
+        <div class="auto-key-heading">
+          <span class="auto-key-number">1</span>
+          <div>
+            <h3>키 파일을 내려받으셨나요?</h3>
+            <p>아래 버튼 하나만 누르면 자동으로 찾아 연결합니다.</p>
+          </div>
+        </div>
+        <button id="autoFindKeysButton" class="button button-primary button-large button-wide auto-key-button" type="button">
+          다운로드한 키 자동 찾기
+        </button>
+        <div class="key-file-actions">
+          <button id="selectKeyFilesButton" class="button button-light" type="button">키 파일 2개 직접 선택</button>
+          <button id="openDownloadsButton" class="button button-light" type="button">다운로드 폴더 열기</button>
+        </div>
+        <input id="keyFilesInput" class="hidden" type="file" accept=".txt,text/plain" multiple>
+      </section>
+
+      <div id="settingsMessage" class="inline-message hidden"></div>
+
+      <details id="manualKeyDetails" class="manual-key-details">
+        <summary>자동으로 못 찾았나요? 키를 직접 붙여넣기</summary>
+        <div class="manual-key-body">
+          <label class="field-label" for="appKey">App Key</label>
+          <input id="appKey" class="settings-input" type="password" autocomplete="off" placeholder="App Key를 붙여넣어 주세요">
+          <label class="field-label" for="secretKey">App Secret</label>
+          <input id="secretKey" class="settings-input" type="password" autocomplete="off" placeholder="App Secret을 붙여넣어 주세요">
+          <label class="switch-row">
+            <input id="useMock" type="checkbox">
+            <span><strong>모의투자 서버 사용</strong><small>모의투자 키를 발급받은 경우에만 켜 주세요.</small></span>
+          </label>
+          <div class="modal-actions">
+            <button id="testConnectionButton" class="button button-light" type="button">연결 확인</button>
+            <button id="saveSettingsButton" class="button button-primary" type="button">저장하고 시작</button>
+          </div>
+        </div>
+      </details>
+      <p class="security-note">입력한 키는 이 컴퓨터의 보안 저장소에만 보관됩니다.</p>
+    </div>
+  </div>
+
+  {% include "guide.html" %}
+
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+  <script>window.APP_VERSION = {{ version|tojson }};</script>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
