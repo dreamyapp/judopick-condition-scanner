@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import json
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -13,12 +14,12 @@ from condition_parser import FIELD_LABELS, OPERATOR_LABELS, parse_condition_text
 from credentials import Credentials, get_credentials, save_credentials
 from key_import import KeyImportError, find_downloaded_keys, open_downloads_folder
 from kiwoom_client import KiwoomClient, KiwoomError
-from paths import resource_path
+from paths import data_dir, resource_path
 from scanner import scan_custom, scan_kiwoom, scan_signal
 from signal_formula import TIMEFRAMES, looks_like_signal_formula, parse_signal_formula, validate_signal_formula
 
 
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.4.1"
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,8 @@ storage.initialize()
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="condition-search")
 _jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
+LAST_RESULTS_FILE = data_dir() / "last_search.json"
+RESULT_PAGE_SIZE = 100
 
 
 def _ok(**payload):
@@ -243,6 +246,33 @@ def _set_job(job_id: str, **changes) -> None:
             _jobs[job_id].update(changes)
 
 
+def _save_last_results(job_id: str, condition: dict, results: list[dict], finished_at: str) -> None:
+    snapshot = {
+        "job_id": job_id,
+        "condition_id": condition["id"],
+        "mode": condition.get("mode", "custom"),
+        "timeframe": condition.get("timeframe", ""),
+        "finished_at": finished_at,
+        "results": results,
+    }
+    temporary = LAST_RESULTS_FILE.with_name(f"{LAST_RESULTS_FILE.name}.{job_id}.tmp")
+    try:
+        temporary.write_text(json.dumps(snapshot, ensure_ascii=False, allow_nan=False), encoding="utf-8")
+        temporary.replace(LAST_RESULTS_FILE)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _load_last_results() -> dict | None:
+    try:
+        snapshot = json.loads(LAST_RESULTS_FILE.read_text(encoding="utf-8"))
+        if isinstance(snapshot, dict) and isinstance(snapshot.get("results"), list):
+            return snapshot
+    except (OSError, ValueError, TypeError):
+        pass
+    return None
+
+
 def _run_search(job_id: str, condition: dict) -> None:
     try:
         def progress(percent: int, message: str) -> None:
@@ -255,13 +285,19 @@ def _run_search(job_id: str, condition: dict) -> None:
             results = scan_signal(condition, progress=progress)
         else:
             results = scan_custom(condition, progress=progress)
+        finished_at = datetime.now().isoformat(timespec="seconds")
+        try:
+            _save_last_results(job_id, condition, results, finished_at)
+        except (OSError, ValueError, TypeError):
+            logger.exception("최근 검색 결과 저장 실패")
         _set_job(
             job_id,
             status="done",
             progress=100,
             message=f"{len(results):,}개 종목을 찾았습니다.",
             results=results,
-            finished_at=datetime.now().isoformat(timespec="seconds"),
+            result_count=len(results),
+            finished_at=finished_at,
         )
     except (KiwoomError, ValueError) as exc:
         _set_job(job_id, status="error", message=str(exc), progress=0)
@@ -290,6 +326,8 @@ def start_search():
         _jobs[job_id] = {
             "id": job_id,
             "condition_id": condition_id,
+            "mode": condition.get("mode", "custom"),
+            "timeframe": condition.get("timeframe", ""),
             "status": "running",
             "progress": 1,
             "message": "검색을 시작합니다.",
@@ -303,10 +341,51 @@ def start_search():
 @app.get("/api/search/<job_id>")
 def search_status(job_id: str):
     with _jobs_lock:
-        job = dict(_jobs.get(job_id) or {})
+        job = {key: value for key, value in (_jobs.get(job_id) or {}).items() if key != "results"}
     if not job:
         return _error("검색 기록을 찾지 못했습니다.", 404)
     return _ok(job=job)
+
+
+@app.get("/api/search/latest")
+def latest_search():
+    snapshot = _load_last_results()
+    if not snapshot:
+        return _ok(available=False)
+    return _ok(
+        available=True,
+        job_id=snapshot.get("job_id"),
+        condition_id=snapshot.get("condition_id"),
+        mode=snapshot.get("mode"),
+        timeframe=snapshot.get("timeframe"),
+        finished_at=snapshot.get("finished_at"),
+        result_count=len(snapshot["results"]),
+    )
+
+
+@app.get("/api/search/<job_id>/results")
+def search_results(job_id: str):
+    try:
+        offset = int(request.args.get("offset", "0"))
+    except ValueError:
+        return _error("결과 위치를 확인해 주세요.")
+    if offset < 0:
+        return _error("결과 위치를 확인해 주세요.")
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        completed = dict(job) if job and job.get("status") == "done" else None
+    snapshot = completed or _load_last_results()
+    if not snapshot or (not completed and snapshot.get("job_id") != job_id):
+        return _error("완료된 검색 결과를 찾지 못했습니다.", 404)
+    results = snapshot["results"]
+    return _ok(
+        results=results[offset:offset + RESULT_PAGE_SIZE],
+        offset=offset,
+        total=len(results),
+        finished_at=snapshot.get("finished_at"),
+        mode=snapshot.get("mode"),
+        timeframe=snapshot.get("timeframe"),
+    )
 
 
 @app.get("/api/health")

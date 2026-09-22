@@ -6,6 +6,11 @@ const state = {
   operators: [],
   credentialsConfigured: false,
   activeJobId: null,
+  resultJobId: null,
+  resultOffset: 0,
+  resultTotal: 0,
+  resultMode: "custom",
+  resultTimeframe: "",
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -442,6 +447,9 @@ async function startSearch() {
   }
   const condition = await saveCondition();
   if (!condition) return;
+  state.resultJobId = null;
+  state.resultOffset = 0;
+  state.resultTotal = 0;
   $("#resultsSection").classList.add("hidden");
   $("#searchReady").classList.add("hidden");
   $("#searchProgress").classList.remove("hidden");
@@ -472,7 +480,7 @@ async function pollSearch(jobId) {
     updateProgress(job.progress || 0, job.message || "종목을 찾고 있습니다.");
     if (job.status === "done") {
       state.activeJobId = null;
-      renderResults(job.results || [], job.finished_at);
+      await showSearchResults(jobId, job);
       return;
     }
     if (job.status === "error") {
@@ -484,6 +492,47 @@ async function pollSearch(jobId) {
   } catch (error) {
     state.activeJobId = null;
     finishSearchError(error.message);
+  }
+}
+
+async function showSearchResults(jobId, job, restore = false) {
+  state.resultJobId = jobId;
+  state.resultOffset = 0;
+  state.resultTotal = Number(job.result_count || 0);
+  if (!restore) updateProgress(100, "검색 결과를 표시하고 있습니다.");
+  try {
+    const page = await api(`/api/search/${jobId}/results?offset=0`);
+    renderResults(page.results, page.total, page.finished_at,
+      page.mode || job.mode, page.timeframe || job.timeframe);
+    $("#searchProgress").classList.add("hidden");
+    $("#searchReady").classList.remove("hidden");
+  } catch (error) {
+    showResultsError(error.message);
+  }
+}
+
+function showResultsError(message, preserveRows = false) {
+  $("#searchProgress").classList.add("hidden");
+  $("#searchReady").classList.remove("hidden");
+  $("#resultsSection").classList.remove("hidden");
+  $("#resultsTitle").textContent = `${state.resultTotal.toLocaleString("ko-KR")}개 종목을 찾았습니다`;
+  $("#resultsError").classList.remove("hidden");
+  $("#resultsErrorMessage").textContent = message || "결과 다시 보기를 눌러 주세요.";
+  $("#resultsEmpty").classList.add("hidden");
+  if (!preserveRows) $("#resultsTableWrap").classList.add("hidden");
+  $("#moreResultsButton").classList.add("hidden");
+}
+
+async function retryResults() {
+  if (!state.resultJobId) return;
+  if (state.resultOffset > 0) {
+    await loadMoreResults();
+  } else {
+    await showSearchResults(state.resultJobId, {
+      mode: state.resultMode,
+      timeframe: state.resultTimeframe,
+      result_count: state.resultTotal,
+    }, true);
   }
 }
 
@@ -512,37 +561,83 @@ function formatBarTime(value) {
   return `${digits.slice(4, 6)}-${digits.slice(6, 8)} ${digits.slice(8, 10)}:${digits.slice(10, 12)}`;
 }
 
-function renderResults(results, finishedAt) {
-  const isSignal = state.draft?.mode === "signal";
-  $("#priceHeading").textContent = isSignal ? "봉 종가" : "현재가";
-  $("#rateHeading").textContent = isSignal ? "차트 봉" : "등락률";
-  $("#volumeHeading").textContent = isSignal ? "봉 거래량" : "거래량";
-  $("#tradingHeading").textContent = isSignal ? "신호 시각" : "거래대금";
-  $("#foundHeading").textContent = isSignal ? "확인 시각" : "발견 시각";
-  $("#searchProgress").classList.add("hidden");
-  $("#searchReady").classList.remove("hidden");
-  $("#resultsSection").classList.remove("hidden");
-  $("#resultsTitle").textContent = `${results.length.toLocaleString("ko-KR")}개 종목을 찾았습니다`;
-  const date = finishedAt ? new Date(finishedAt) : new Date();
-  $("#resultsTime").textContent = isSignal
-    ? `${date.toLocaleString("ko-KR")} 검색 완료 · 종목별 최신 봉 기준`
-    : `${date.toLocaleString("ko-KR")} 기준`;
-  $("#resultsEmpty").classList.toggle("hidden", results.length > 0);
-  $("#resultsTableWrap").classList.toggle("hidden", results.length === 0);
-  $("#resultsBody").innerHTML = results.map((stock) => {
+function resultRowsHtml(results, isSignal, timeframe) {
+  return results.map((stock) => {
     const rate = Number(stock.change_rate || 0);
     const rateClass = rate > 0 ? "rate-up" : rate < 0 ? "rate-down" : "";
     const ratePrefix = rate > 0 ? "+" : "";
     return `<tr>
       <td class="stock-name"><strong>${escapeHtml(stock.name || stock.code)}</strong><span>${escapeHtml(stock.code)}</span></td>
       <td>${formatNumber(stock.price)}원</td>
-      <td class="${rateClass}">${isSignal ? (state.draft.timeframe === "D" ? "일봉" : `${escapeHtml(state.draft.timeframe)}분`) : `${ratePrefix}${rate.toFixed(2)}%`}</td>
+      <td class="${rateClass}">${isSignal ? (timeframe === "D" ? "일봉" : `${escapeHtml(timeframe)}분`) : `${ratePrefix}${rate.toFixed(2)}%`}</td>
       <td>${formatNumber(stock.volume)}주</td>
       <td>${isSignal ? formatBarTime(stock.bar_time) : `${formatMoney(stock.trading_value)}원`}</td>
       <td>${escapeHtml(stock.found_at || "-")}</td>
     </tr>`;
   }).join("");
-  $("#resultsSection").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function renderResults(results, total, finishedAt, mode, timeframe) {
+  if (!Array.isArray(results) || !Number.isInteger(total) || total < 0 || (total > 0 && !results.length)) {
+    throw new Error("검색 결과가 올바르게 도착하지 않았습니다. 결과 다시 보기를 눌러 주세요.");
+  }
+  const isSignal = mode === "signal";
+  state.resultMode = mode;
+  state.resultTimeframe = timeframe;
+  state.resultOffset = results.length;
+  state.resultTotal = total;
+  $("#priceHeading").textContent = isSignal ? "봉 종가" : "현재가";
+  $("#rateHeading").textContent = isSignal ? "차트 봉" : "등락률";
+  $("#volumeHeading").textContent = isSignal ? "봉 거래량" : "거래량";
+  $("#tradingHeading").textContent = isSignal ? "신호 시각" : "거래대금";
+  $("#foundHeading").textContent = isSignal ? "확인 시각" : "발견 시각";
+  $("#resultsSection").classList.remove("hidden");
+  $("#resultsError").classList.add("hidden");
+  $("#resultsTitle").textContent = `${total.toLocaleString("ko-KR")}개 종목을 찾았습니다`;
+  const date = finishedAt ? new Date(finishedAt) : new Date();
+  const displayDate = Number.isNaN(date.getTime()) ? new Date() : date;
+  $("#resultsTime").textContent = isSignal
+    ? `${displayDate.toLocaleString("ko-KR")} 검색 완료 · 종목별 최신 봉 기준`
+    : `${displayDate.toLocaleString("ko-KR")} 기준`;
+  $("#resultsEmpty").classList.toggle("hidden", total > 0);
+  $("#resultsTableWrap").classList.toggle("hidden", total === 0);
+  $("#resultsBody").innerHTML = resultRowsHtml(results, isSignal, timeframe);
+  updateMoreResultsButton();
+  const section = $("#resultsSection");
+  if (typeof section.scrollIntoView === "function") {
+    try { section.scrollIntoView({ behavior: "smooth", block: "start" }); } catch { /* 결과 표시에는 영향이 없습니다. */ }
+  }
+}
+
+function updateMoreResultsButton() {
+  const button = $("#moreResultsButton");
+  const remaining = state.resultTotal - state.resultOffset;
+  button.classList.toggle("hidden", remaining <= 0);
+  button.textContent = remaining > 0
+    ? `다음 종목 보기 (${state.resultOffset.toLocaleString("ko-KR")} / ${state.resultTotal.toLocaleString("ko-KR")})`
+    : "다음 종목 보기";
+}
+
+async function loadMoreResults() {
+  if (!state.resultJobId || state.resultOffset >= state.resultTotal) return;
+  const button = $("#moreResultsButton");
+  setBusy(button, true, "불러오는 중…");
+  try {
+    const page = await api(`/api/search/${state.resultJobId}/results?offset=${state.resultOffset}`);
+    if (!Array.isArray(page.results) || !page.results.length || page.offset !== state.resultOffset) {
+      throw new Error("다음 종목을 불러오지 못했습니다.");
+    }
+    $("#resultsBody").insertAdjacentHTML("beforeend", resultRowsHtml(page.results,
+      state.resultMode === "signal", state.resultTimeframe));
+    state.resultOffset += page.results.length;
+    $("#resultsError").classList.add("hidden");
+    updateMoreResultsButton();
+  } catch (error) {
+    showResultsError(error.message, true);
+  } finally {
+    setBusy(button, false);
+    if ($("#resultsError").classList.contains("hidden")) updateMoreResultsButton();
+  }
 }
 
 function openSettings() {
@@ -731,6 +826,8 @@ function bindEvents() {
   $("#copyButton").addEventListener("click", copyCondition);
   $("#searchButton").addEventListener("click", startSearch);
   $("#searchAgainButton").addEventListener("click", startSearch);
+  $("#retryResultsButton").addEventListener("click", retryResults);
+  $("#moreResultsButton").addEventListener("click", loadMoreResults);
   $("#settingsButton").addEventListener("click", openSettings);
   $("#autoFindKeysButton").addEventListener("click", autoFindDownloadedKeys);
   $("#selectKeyFilesButton").addEventListener("click", () => $("#keyFilesInput").click());
@@ -768,6 +865,11 @@ async function initialize() {
   try {
     const data = await loadBootstrap();
     if (!data.credentials.configured) openSettings();
+    const latest = await api("/api/search/latest");
+    if (latest.available && state.conditions.some((item) => item.id === latest.condition_id)) {
+      selectCondition(latest.condition_id);
+      await showSearchResults(latest.job_id, latest, true);
+    }
   } catch (error) {
     showToast(error.message, true);
   }

@@ -55,6 +55,7 @@ def looks_like_formula(text: str) -> bool:
 
 def _normalize(text: str) -> str:
     cleaned = re.sub(r"\\+\*", "*", html.unescape(text))
+    cleaned = re.sub(r"\\+[ \t]*(?=\r?\n)", "", cleaned)
     cleaned = re.sub(r"(?m)^\s*```[A-Za-z]*\s*$", "", cleaned)
     cleaned = re.sub(r"(?m)^[\s\\]*-{4,}\s*$", "", cleaned)
     cleaned = re.sub(r"(?m)//[^\n]*$", "", cleaned)
@@ -62,6 +63,26 @@ def _normalize(text: str) -> str:
     cleaned = re.sub(r"!(?!=)", " not ", cleaned)
     cleaned = cleaned.replace("^", "**")
     return cleaned
+
+
+def _is_boolean_signal(node: ast.AST, boolean_names: set[str]) -> bool:
+    if isinstance(node, ast.Expression):
+        return _is_boolean_signal(node.body, boolean_names)
+    if isinstance(node, (ast.Compare, ast.BoolOp)):
+        return True
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+        return True
+    if isinstance(node, ast.Constant):
+        return type(node.value) is bool
+    if isinstance(node, ast.Name):
+        return node.id.upper() in boolean_names
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+        name = node.func.id.upper()
+        if name in {"CROSS", "CROSSUP", "CROSSDOWN"} or name in boolean_names:
+            return True
+        if name == "IF" and len(node.args) == 3:
+            return all(_is_boolean_signal(arg, boolean_names) for arg in node.args[1:])
+    return False
 
 
 def _validate_tree(node: ast.AST, known: set[str]) -> None:
@@ -137,6 +158,7 @@ def compile_formula(text: str) -> CompiledFormula:
     if not parts:
         raise ValueError("마지막에 참/거짓 신호식을 입력해 주세요.")
     known = set(BASE_FIELDS)
+    boolean_names: set[str] = set()
     assignments = []
     final = None
     total_nodes = 0
@@ -165,11 +187,15 @@ def compile_formula(text: str) -> CompiledFormula:
             raise ValueError(f"{index}번째 식: {exc}") from exc
         if name:
             assignments.append((name, parsed))
+            if _is_boolean_signal(parsed, boolean_names):
+                boolean_names.add(name)
             known.add(name)
         else:
             final = parsed
     if final is None:
         raise ValueError("마지막에 신호가 참일 때의 식을 추가해 주세요. 예: C>MA(C,20)")
+    if not _is_boolean_signal(final, boolean_names):
+        raise ValueError("마지막 줄에는 종목을 찾을 신호 조건을 넣어 주세요. 예: C>AVWAP")
     return CompiledFormula(tuple(assignments), final,
                            f"직접 만든 수식 · 계산식 {len(assignments)}개 · 최근 봉 신호")
 

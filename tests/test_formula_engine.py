@@ -35,6 +35,13 @@ def test_multiline_formula_and_html_escapes():
     formula = compile_formula("X=C>MA(C,2);\nX &&\nC(1) &lt;= REF(MA(C,2),1)")
     assert evaluate_latest(formula, [bar("20260920", 10), bar("20260921", 9), bar("20260922", 12)])[0]
     assert compile_formula("```text\nC>MA(C,2)\n```")
+    assert compile_formula("A=C;\\\nA>C(1)")
+
+
+def test_numeric_indicator_alone_is_not_a_stock_search_signal():
+    with pytest.raises(ValueError, match="마지막 줄에는 종목을 찾을 신호 조건"):
+        compile_formula("AVWAP=MA(C,20); AVWAP")
+    assert compile_formula("AVWAP=MA(C,20); C>AVWAP")
 
 
 @pytest.mark.parametrize("source", [

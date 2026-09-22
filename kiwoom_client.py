@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -29,7 +30,7 @@ def _safe_number(value, absolute: bool = False) -> float:
         return 0.0
     try:
         number = float(text)
-        return abs(number) if absolute else number
+        return (abs(number) if absolute else number) if math.isfinite(number) else 0.0
     except ValueError:
         return 0.0
 

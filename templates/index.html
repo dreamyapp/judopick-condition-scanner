@@ -168,6 +168,11 @@
             </div>
             <button id="searchAgainButton" class="button button-light" type="button">다시 찾기</button>
           </div>
+          <div id="resultsError" class="results-error hidden" role="alert">
+            <strong>검색은 끝났지만 결과를 표시하지 못했습니다.</strong>
+            <span id="resultsErrorMessage">결과 다시 보기를 눌러 주세요.</span>
+            <button id="retryResultsButton" class="button button-secondary" type="button">결과 다시 보기</button>
+          </div>
           <div id="resultsEmpty" class="results-empty hidden">
             <strong>조건에 맞는 종목이 없습니다.</strong>
             <span>조건 범위를 조금 넓혀 다시 찾아보세요.</span>
@@ -182,6 +187,7 @@
               <tbody id="resultsBody"></tbody>
             </table>
           </div>
+          <button id="moreResultsButton" class="button button-secondary button-wide more-results hidden" type="button">다음 종목 보기</button>
         </section>
       </section>
     </main>

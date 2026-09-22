@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import math
 from datetime import datetime
 from typing import Callable
 
@@ -19,7 +20,8 @@ def _number(row: dict, *keys: str, absolute: bool = False) -> float:
         if value not in (None, ""):
             try:
                 parsed = float(str(value).replace(",", "").replace(" ", ""))
-                return abs(parsed) if absolute else parsed
+                if math.isfinite(parsed):
+                    return abs(parsed) if absolute else parsed
             except ValueError:
                 continue
     return 0.0
@@ -139,7 +141,7 @@ def scan_custom(
         seen.add(stock["code"])
         stock["found_at"] = datetime.now().strftime("%H:%M:%S")
         unique.append(stock)
-    progress(100, f"{len(unique):,}개 종목을 찾았습니다.")
+    progress(99, f"{len(unique):,}개 종목의 조회를 마쳤습니다. 결과를 준비하고 있습니다.")
     return unique
 
 
@@ -202,5 +204,5 @@ def scan_signal(
             })
         progress(5 + int((index + 1) / max(len(codes), 1) * 94),
                  f"{index + 1:,}/{len(codes):,}개 종목 확인 중 · 신호 {len(results):,}개")
-    progress(100, f"{len(results):,}개 종목에서 신호를 찾았습니다.")
+    progress(99, f"{len(results):,}개 종목의 조회를 마쳤습니다. 결과를 준비하고 있습니다.")
     return results
