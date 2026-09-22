@@ -31,12 +31,16 @@ def initialize() -> None:
                 rules_json TEXT NOT NULL DEFAULT '[]',
                 markets_json TEXT NOT NULL DEFAULT '["KOSPI", "KOSDAQ"]',
                 exclusions_json TEXT NOT NULL DEFAULT '[]',
+                timeframe TEXT NOT NULL DEFAULT '',
                 kiwoom_seq TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
             """
         )
+        columns = {row[1] for row in db.execute("PRAGMA table_info(conditions)")}
+        if "timeframe" not in columns:
+            db.execute("ALTER TABLE conditions ADD COLUMN timeframe TEXT NOT NULL DEFAULT ''")
 
 
 def _decode(row: sqlite3.Row) -> dict:
@@ -66,7 +70,7 @@ def save_condition(payload: dict, condition_id: str | None = None) -> dict:
     if not name:
         raise ValueError("조건식 이름을 입력해 주세요.")
     mode = payload.get("mode", "custom")
-    if mode not in {"custom", "kiwoom"}:
+    if mode not in {"custom", "kiwoom", "signal"}:
         raise ValueError("지원하지 않는 조건식 종류입니다.")
 
     now = datetime.now().isoformat(timespec="seconds")
@@ -81,6 +85,7 @@ def save_condition(payload: dict, condition_id: str | None = None) -> dict:
         json.dumps(payload.get("rules", []), ensure_ascii=False),
         json.dumps(payload.get("markets", ["KOSPI", "KOSDAQ"]), ensure_ascii=False),
         json.dumps(payload.get("exclusions", []), ensure_ascii=False),
+        str(payload.get("timeframe", "")),
         payload.get("kiwoom_seq"),
         created_at,
         now,
@@ -90,8 +95,8 @@ def save_condition(payload: dict, condition_id: str | None = None) -> dict:
             """
             INSERT INTO conditions
               (id, name, mode, raw_text, rules_json, markets_json, exclusions_json,
-               kiwoom_seq, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               timeframe, kiwoom_seq, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
               name=excluded.name,
               mode=excluded.mode,
@@ -99,6 +104,7 @@ def save_condition(payload: dict, condition_id: str | None = None) -> dict:
               rules_json=excluded.rules_json,
               markets_json=excluded.markets_json,
               exclusions_json=excluded.exclusions_json,
+              timeframe=excluded.timeframe,
               kiwoom_seq=excluded.kiwoom_seq,
               updated_at=excluded.updated_at
             """,
@@ -135,4 +141,3 @@ def delete_condition(condition_id: str) -> bool:
     with _connect() as db:
         cursor = db.execute("DELETE FROM conditions WHERE id = ?", (condition_id,))
     return cursor.rowcount > 0
-

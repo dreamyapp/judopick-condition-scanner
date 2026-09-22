@@ -14,10 +14,11 @@ from credentials import Credentials, get_credentials, save_credentials
 from key_import import KeyImportError, find_downloaded_keys, open_downloads_folder
 from kiwoom_client import KiwoomClient, KiwoomError
 from paths import resource_path
-from scanner import scan_custom, scan_kiwoom
+from scanner import scan_custom, scan_kiwoom, scan_signal
+from signal_formula import TIMEFRAMES, looks_like_signal_formula, parse_signal_formula, validate_signal_formula
 
 
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.4.0"
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,9 @@ def _test_and_save_credentials(app_key: str, secret_key: str, use_mock: bool) ->
 def _condition_summary(condition: dict) -> str:
     if condition.get("mode") == "kiwoom":
         return "영웅문에 저장된 조건식"
+    if condition.get("mode") == "signal":
+        timeframe = condition.get("timeframe") or "?"
+        return f"{'일봉' if timeframe == 'D' else timeframe + '분봉'} · 직접 만든 수식"
     labels = [rule.get("label", "") for rule in condition.get("rules", []) if rule.get("label")]
     return " · ".join(labels) if labels else "조건을 입력해 주세요"
 
@@ -62,6 +66,8 @@ def _condition_summary(condition: dict) -> str:
 def _condition_export_text(condition: dict) -> str:
     if condition.get("mode") == "kiwoom":
         return f"조건식명: {condition['name']}\n종류: 영웅문 저장 조건식"
+    if condition.get("mode") == "signal":
+        return condition.get("raw_text", "")
     market_names = {"KOSPI": "코스피", "KOSDAQ": "코스닥"}
     lines = [f"조건식명: {condition['name']}"]
     lines.append("시장: " + ", ".join(market_names.get(item, item) for item in condition.get("markets", [])))
@@ -153,14 +159,27 @@ def parse_text():
     text = str(payload.get("text", "")).strip()
     if not text:
         return _error("조건식을 붙여넣어 주세요.")
-    return _ok(parsed=parse_condition_text(text).as_dict())
+    if looks_like_signal_formula(text):
+        try:
+            return _ok(parsed=parse_signal_formula(text))
+        except ValueError as exc:
+            return _error(str(exc))
+    return _ok(parsed={"mode": "custom", **parse_condition_text(text).as_dict()})
 
 
 @app.post("/api/conditions")
 def create_condition():
     payload = request.get_json(silent=True) or {}
     try:
-        payload["rules"] = [validate_rule(rule) for rule in payload.get("rules", [])]
+        if payload.get("mode") == "signal":
+            validate_signal_formula(str(payload.get("raw_text", "")))
+            if str(payload.get("timeframe", "")) not in TIMEFRAMES:
+                raise ValueError("검색할 차트 봉을 선택해 주세요.")
+            payload["rules"] = []
+        elif payload.get("mode", "custom") == "custom":
+            if looks_like_signal_formula(str(payload.get("raw_text", ""))):
+                raise ValueError("수식은 '조건식 확인'을 눌러 확인해 주세요.")
+            payload["rules"] = [validate_rule(rule) for rule in payload.get("rules", [])]
         condition = storage.save_condition(payload)
         condition["summary"] = _condition_summary(condition)
         return _ok(condition=condition)
@@ -175,7 +194,14 @@ def update_condition(condition_id: str):
     payload = request.get_json(silent=True) or {}
     try:
         if payload.get("mode", "custom") == "custom":
+            if looks_like_signal_formula(str(payload.get("raw_text", ""))):
+                raise ValueError("수식은 '조건식 확인'을 눌러 확인해 주세요.")
             payload["rules"] = [validate_rule(rule) for rule in payload.get("rules", [])]
+        elif payload.get("mode") == "signal":
+            validate_signal_formula(str(payload.get("raw_text", "")))
+            if str(payload.get("timeframe", "")) not in TIMEFRAMES:
+                raise ValueError("검색할 차트 봉을 선택해 주세요.")
+            payload["rules"] = []
         condition = storage.save_condition(payload, condition_id)
         condition["summary"] = _condition_summary(condition)
         return _ok(condition=condition)
@@ -225,6 +251,8 @@ def _run_search(job_id: str, condition: dict) -> None:
         if condition.get("mode") == "kiwoom":
             progress(20, "키움에서 조건에 맞는 종목을 찾고 있습니다.")
             results = scan_kiwoom(condition)
+        elif condition.get("mode") == "signal":
+            results = scan_signal(condition, progress=progress)
         else:
             results = scan_custom(condition, progress=progress)
         _set_job(

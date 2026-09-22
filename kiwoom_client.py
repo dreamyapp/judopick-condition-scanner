@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -169,6 +169,27 @@ class KiwoomClient:
                 return rows
         # 일부 환경에서는 단일 종목 응답이 최상위 객체로 온다.
         return [data] if data.get("stk_cd") else []
+
+    def minute_chart(self, code: str, timeframe: str) -> list[dict]:
+        data = self.post(
+            "ka10080",
+            {"stk_cd": code, "tic_scope": timeframe, "upd_stkpc_tp": "1"},
+            "/api/dostk/chart",
+            timeout=30,
+        )
+        rows = data.get("stk_min_pole_chart_qry") or []
+        return [row for row in rows if isinstance(row, dict)]
+
+    def daily_chart(self, code: str) -> list[dict]:
+        korean_date = datetime.now(timezone(timedelta(hours=9))).strftime("%Y%m%d")
+        data = self.post(
+            "ka10081",
+            {"stk_cd": code, "base_dt": korean_date, "upd_stkpc_tp": "1"},
+            "/api/dostk/chart",
+            timeout=30,
+        )
+        rows = data.get("stk_dt_pole_chart_qry") or []
+        return [row for row in rows if isinstance(row, dict)]
 
     def _open_condition_socket(self):
         try:

@@ -101,7 +101,7 @@ function renderConditionList() {
   }
   list.innerHTML = state.conditions.map((condition) => `
     <button class="condition-item ${state.selectedId === condition.id ? "active" : ""}" data-id="${escapeHtml(condition.id)}" type="button">
-      ${condition.mode === "kiwoom" ? '<span class="condition-mode">영웅문</span>' : ""}
+      ${condition.mode === "kiwoom" ? '<span class="condition-mode">영웅문</span>' : condition.mode === "signal" ? '<span class="condition-mode">차트 수식</span>' : ""}
       <strong>${escapeHtml(condition.name)}</strong>
       <span>${escapeHtml(condition.summary)}</span>
     </button>
@@ -112,6 +112,7 @@ function renderConditionList() {
 }
 
 function newCondition() {
+  state.activeJobId = null;
   state.selectedId = null;
   state.draft = {
     id: null,
@@ -121,6 +122,7 @@ function newCondition() {
     rules: [{ field: "change_rate", operator: "gte", value: 3 }],
     markets: ["KOSPI", "KOSDAQ"],
     exclusions: ["ETF", "ETN", "스팩"],
+    timeframe: "",
   };
   renderConditionList();
   renderEditor();
@@ -130,6 +132,7 @@ function newCondition() {
 function selectCondition(conditionId) {
   const condition = state.conditions.find((item) => item.id === conditionId);
   if (!condition) return;
+  state.activeJobId = null;
   state.selectedId = conditionId;
   state.draft = deepCopy(condition);
   renderConditionList();
@@ -144,9 +147,13 @@ function renderEditor() {
   $("#searchProgress").classList.add("hidden");
 
   const isKiwoom = state.draft.mode === "kiwoom";
+  const isSignal = state.draft.mode === "signal";
+  $("#searchDescription").textContent = isSignal
+    ? "가장 최근 봉의 신호를 확인합니다. 장중에는 신호가 바뀔 수 있습니다."
+    : "현재 시세를 기준으로 검색합니다.";
   $("#conditionName").value = state.draft.name || "";
   $("#conditionName").disabled = isKiwoom;
-  $("#conditionTypeBadge").textContent = isKiwoom ? "영웅문 조건식" : "직접 만든 조건식";
+  $("#conditionTypeBadge").textContent = isKiwoom ? "영웅문 조건식" : isSignal ? "차트 수식" : "직접 만든 조건식";
   $("#kiwoomInfo").classList.toggle("hidden", !isKiwoom);
   $("#customEditor").classList.toggle("hidden", isKiwoom);
   $("#saveButton").classList.toggle("hidden", isKiwoom);
@@ -160,8 +167,12 @@ function renderEditor() {
       input.checked = state.draft.exclusions.includes(input.value);
     });
     $("#conditionText").value = state.draft.raw_text || "";
+    $("#signalTimeframe").value = state.draft.timeframe || "";
+    $("#signalKospi").checked = state.draft.markets.includes("KOSPI");
+    $("#signalKosdaq").checked = state.draft.markets.includes("KOSDAQ");
+    $("#signalOptions").classList.toggle("hidden", !isSignal);
     $("#parsePreview").classList.add("hidden");
-    activateTab("simple");
+    activateTab(isSignal ? "paste" : "simple");
     renderRules();
   }
 }
@@ -235,9 +246,15 @@ function syncRuleRow(row, index) {
 
 function syncDraftFromForm() {
   if (!state.draft || state.draft.mode === "kiwoom") return;
-  $$(".rule-row").forEach((row) => syncRuleRow(row, Number(row.dataset.index)));
   state.draft.name = $("#conditionName").value.trim();
   state.draft.raw_text = $("#conditionText").value.trim();
+  if (state.draft.mode === "signal") {
+    state.draft.timeframe = $("#signalTimeframe").value;
+    state.draft.markets = [$("#signalKospi").checked ? "KOSPI" : null,
+      $("#signalKosdaq").checked ? "KOSDAQ" : null].filter(Boolean);
+    return;
+  }
+  $$(".rule-row").forEach((row) => syncRuleRow(row, Number(row.dataset.index)));
   state.draft.markets = [
     $("#marketKospi").checked ? "KOSPI" : null,
     $("#marketKosdaq").checked ? "KOSDAQ" : null,
@@ -246,6 +263,17 @@ function syncDraftFromForm() {
 }
 
 function activateTab(name) {
+  if (name === "simple" && state.draft?.mode === "signal") {
+    if (!confirm("차트 수식을 일반 조건으로 바꾸면 붙여넣은 수식이 지워집니다. 계속할까요?")) return;
+    state.draft.mode = "custom";
+    state.draft.raw_text = "";
+    $("#conditionText").value = "";
+    if (!state.draft.rules.length) state.draft.rules = [{ field: "price", operator: "gte", value: 10000 }];
+    renderRules();
+    $("#signalOptions").classList.add("hidden");
+    $("#conditionTypeBadge").textContent = "직접 만든 조건식";
+    $("#searchDescription").textContent = "현재 시세를 기준으로 검색합니다.";
+  }
   $$(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === name));
   $("#simpleTab").classList.toggle("hidden", name !== "simple");
   $("#pasteTab").classList.toggle("hidden", name !== "paste");
@@ -258,18 +286,31 @@ async function parsePastedCondition() {
   try {
     const data = await api("/api/parse", { method: "POST", body: JSON.stringify({ text }) });
     const parsed = data.parsed;
+    state.draft.mode = parsed.mode;
     state.draft.raw_text = text;
     state.draft.rules = parsed.rules;
     state.draft.markets = parsed.markets;
     state.draft.exclusions = parsed.exclusions;
+    $("#signalOptions").classList.toggle("hidden", parsed.mode !== "signal");
+    $("#conditionTypeBadge").textContent = parsed.mode === "signal" ? "차트 수식" : "직접 만든 조건식";
+    $("#searchDescription").textContent = parsed.mode === "signal"
+      ? "가장 최근 봉의 신호를 확인합니다. 장중에는 신호가 바뀔 수 있습니다."
+      : "현재 시세를 기준으로 검색합니다.";
+    if (parsed.mode === "signal") {
+      $("#signalKospi").checked = true;
+      $("#signalKosdaq").checked = true;
+      $("#signalTimeframe").value = state.draft.timeframe || "";
+    }
     if (parsed.name) {
       state.draft.name = parsed.name;
       $("#conditionName").value = parsed.name;
     }
     renderParsePreview(parsed);
     showToast("조건식을 확인했습니다.");
+    return true;
   } catch (error) {
     showToast(error.message, true);
+    return false;
   } finally {
     setBusy(button, false);
   }
@@ -279,6 +320,7 @@ function renderParsePreview(parsed) {
   const preview = $("#parsePreview");
   const marketLabel = parsed.markets.map((item) => item === "KOSPI" ? "코스피" : "코스닥").join(", ");
   const chips = [
+    parsed.description || "",
     marketLabel ? `시장: ${marketLabel}` : "",
     ...parsed.rules.map((rule) => rule.label),
     parsed.exclusions.length ? `제외: ${parsed.exclusions.join(", ")}` : "",
@@ -296,6 +338,10 @@ function renderParsePreview(parsed) {
 async function saveCondition() {
   if (!state.draft) return null;
   if (state.draft.mode === "kiwoom") return state.draft;
+  if ($(".tab.active")?.dataset.tab === "paste" && $("#conditionText").value.trim()
+      && $("#conditionText").value.trim() !== state.draft.raw_text) {
+    if (!await parsePastedCondition()) return null;
+  }
   syncDraftFromForm();
   if (!state.draft.name) {
     showToast("조건식 이름을 입력해 주세요.", true);
@@ -306,7 +352,12 @@ async function saveCondition() {
     showToast("코스피 또는 코스닥을 선택해 주세요.", true);
     return null;
   }
-  if (!state.draft.rules.length) {
+  if (state.draft.mode === "signal" && !state.draft.timeframe) {
+    showToast("검색할 차트 봉을 선택해 주세요.", true);
+    $("#signalTimeframe").focus();
+    return null;
+  }
+  if (state.draft.mode === "custom" && !state.draft.rules.length) {
     showToast("검색 조건을 한 개 이상 추가해 주세요.", true);
     return null;
   }
@@ -454,13 +505,28 @@ function formatMoney(value) {
   return formatNumber(number);
 }
 
+function formatBarTime(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (digits.length === 8) return `${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
+  if (digits.length < 12) return "—";
+  return `${digits.slice(4, 6)}-${digits.slice(6, 8)} ${digits.slice(8, 10)}:${digits.slice(10, 12)}`;
+}
+
 function renderResults(results, finishedAt) {
+  const isSignal = state.draft?.mode === "signal";
+  $("#priceHeading").textContent = isSignal ? "봉 종가" : "현재가";
+  $("#rateHeading").textContent = isSignal ? "차트 봉" : "등락률";
+  $("#volumeHeading").textContent = isSignal ? "봉 거래량" : "거래량";
+  $("#tradingHeading").textContent = isSignal ? "신호 시각" : "거래대금";
+  $("#foundHeading").textContent = isSignal ? "확인 시각" : "발견 시각";
   $("#searchProgress").classList.add("hidden");
   $("#searchReady").classList.remove("hidden");
   $("#resultsSection").classList.remove("hidden");
   $("#resultsTitle").textContent = `${results.length.toLocaleString("ko-KR")}개 종목을 찾았습니다`;
   const date = finishedAt ? new Date(finishedAt) : new Date();
-  $("#resultsTime").textContent = `${date.toLocaleString("ko-KR")} 기준`;
+  $("#resultsTime").textContent = isSignal
+    ? `${date.toLocaleString("ko-KR")} 검색 완료 · 종목별 최신 봉 기준`
+    : `${date.toLocaleString("ko-KR")} 기준`;
   $("#resultsEmpty").classList.toggle("hidden", results.length > 0);
   $("#resultsTableWrap").classList.toggle("hidden", results.length === 0);
   $("#resultsBody").innerHTML = results.map((stock) => {
@@ -470,9 +536,9 @@ function renderResults(results, finishedAt) {
     return `<tr>
       <td class="stock-name"><strong>${escapeHtml(stock.name || stock.code)}</strong><span>${escapeHtml(stock.code)}</span></td>
       <td>${formatNumber(stock.price)}원</td>
-      <td class="${rateClass}">${ratePrefix}${rate.toFixed(2)}%</td>
+      <td class="${rateClass}">${isSignal ? (state.draft.timeframe === "D" ? "일봉" : `${escapeHtml(state.draft.timeframe)}분`) : `${ratePrefix}${rate.toFixed(2)}%`}</td>
       <td>${formatNumber(stock.volume)}주</td>
-      <td>${formatMoney(stock.trading_value)}원</td>
+      <td>${isSignal ? formatBarTime(stock.bar_time) : `${formatMoney(stock.trading_value)}원`}</td>
       <td>${escapeHtml(stock.found_at || "-")}</td>
     </tr>`;
   }).join("");
@@ -509,6 +575,31 @@ function openGuide() {
 
 function closeGuide() {
   $("#guideModal").classList.add("hidden");
+}
+
+function openShare() {
+  $("#shareModal").classList.remove("hidden");
+  setTimeout(() => $("#copyWindowsLinkButton").focus(), 0);
+}
+
+function closeShare() {
+  $("#shareModal").classList.add("hidden");
+}
+
+async function copyDownloadLink(platform) {
+  const filenames = {
+    windows: "Judopick-ConditionScanner-Windows-x64-Setup.exe",
+    mac: "Judopick-ConditionScanner-macOS-arm64.dmg",
+  };
+  const filename = filenames[platform];
+  const link = `https://github.com/dreamyapp/judopick-condition-scanner/releases/download/v${window.APP_VERSION}/${filename}`;
+  try {
+    await copyText(link);
+    const label = platform === "windows" ? "윈도우" : "맥 M1 이후";
+    showToast(`${label} 다운로드 링크를 복사했습니다.`);
+  } catch {
+    showToast("링크를 복사하지 못했습니다. 잠시 후 다시 시도해 주세요.", true);
+  }
 }
 
 function showSettingsMessage(text, isError = false) {
@@ -646,6 +737,10 @@ function bindEvents() {
   $("#keyFilesInput").addEventListener("change", importSelectedKeyFiles);
   $("#openDownloadsButton").addEventListener("click", openDownloads);
   $("#guideButton").addEventListener("click", openGuide);
+  $("#shareAppButton").addEventListener("click", openShare);
+  $("#closeShareButton").addEventListener("click", closeShare);
+  $("#copyWindowsLinkButton").addEventListener("click", () => copyDownloadLink("windows"));
+  $("#copyMacLinkButton").addEventListener("click", () => copyDownloadLink("mac"));
   $("#openGuideFromSettings").addEventListener("click", openGuide);
   $("#closeGuideButton").addEventListener("click", closeGuide);
   $("#closeSettingsButton").addEventListener("click", closeSettings);
@@ -655,11 +750,15 @@ function bindEvents() {
   $("#guideModal").addEventListener("click", (event) => {
     if (event.target === $("#guideModal")) closeGuide();
   });
+  $("#shareModal").addEventListener("click", (event) => {
+    if (event.target === $("#shareModal")) closeShare();
+  });
   $("#saveSettingsButton").addEventListener("click", () => saveSettings(false));
   $("#testConnectionButton").addEventListener("click", () => saveSettings(true));
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     if (!$("#guideModal").classList.contains("hidden")) closeGuide();
+    else if (!$("#shareModal").classList.contains("hidden")) closeShare();
     else if (!$("#settingsModal").classList.contains("hidden")) closeSettings();
   });
 }

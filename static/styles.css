@@ -181,6 +181,16 @@ h1, h2, h3, p { margin: 0; }
   border: 2px solid #cbd3df;
   border-radius: 12px;
 }
+.signal-options { display: grid; gap: 12px; }
+.signal-options select { max-width: 280px; min-height: 56px; font-weight: 750; }
+.signal-options p { color: var(--muted); }
+.paste-hint { margin: 8px 0 14px; color: var(--muted); }
+.formula-help { margin-top: 12px; padding: 12px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.formula-help summary { cursor: pointer; font-weight: 750; }
+.formula-help p { margin-top: 8px; color: var(--muted); }
+.formula-help code { display: block; margin-top: 8px; overflow-wrap: anywhere; }
+.share-app-button { margin-top: 24px; }
+.modal-card.share-modal-card { width: min(600px, 100%); }
 .name-input { height: 58px; padding: 10px 16px; font-size: 1.15rem; font-weight: 750; }
 .type-badge { flex: 0 0 auto; padding: 10px 14px; color: var(--blue); background: var(--blue-soft); border-radius: 10px; font-weight: 750; }
 

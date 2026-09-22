@@ -6,6 +6,8 @@ from typing import Callable
 
 from condition_parser import validate_rule
 from kiwoom_client import KiwoomClient, clean_code, normalize_condition_result
+from formula_engine import compile_formula, evaluate_latest
+from signal_formula import TIMEFRAMES
 
 
 MARKET_CODES = {"KOSPI": "0", "KOSDAQ": "10"}
@@ -149,4 +151,56 @@ def scan_kiwoom(condition: dict, client: KiwoomClient | None = None) -> list[dic
         stock = normalize_condition_result(row)
         stock["found_at"] = datetime.now().strftime("%H:%M:%S")
         results.append(stock)
+    return results
+
+
+def scan_signal(
+    condition: dict,
+    progress: Callable[[int, str], None] | None = None,
+    client: KiwoomClient | None = None,
+) -> list[dict]:
+    compiled = compile_formula(str(condition.get("raw_text", "")))
+    timeframe = str(condition.get("timeframe", ""))
+    if timeframe not in TIMEFRAMES:
+        raise ValueError("검색할 차트 봉을 선택해 주세요.")
+    client = client or KiwoomClient()
+    progress = progress or (lambda percent, message: None)
+    markets = condition.get("markets") or ["KOSPI", "KOSDAQ"]
+    exclusions = condition.get("exclusions") or []
+    universe: dict[str, dict] = {}
+    progress(3, "검색할 종목 목록을 준비하고 있습니다.")
+    for market in markets:
+        market_code = MARKET_CODES.get(market)
+        if not market_code:
+            continue
+        for row in client.stock_list(market_code):
+            code = clean_code(row.get("code", ""))
+            name = str(row.get("name", ""))
+            market_name = str(row.get("marketName") or row.get("marketname") or "")
+            if code and name and not _is_excluded(name, market_name, exclusions):
+                row["_market"] = market
+                universe[code] = row
+    codes = list(universe)
+    results = []
+    for index, code in enumerate(codes):
+        if index:
+            time.sleep(0.2)
+        bars = client.daily_chart(code) if timeframe == "D" else client.minute_chart(code, timeframe)
+        matched, last = evaluate_latest(compiled, bars)
+        if matched and last:
+            results.append({
+                "code": code,
+                "name": universe[code]["name"],
+                "market": universe[code]["_market"],
+                "price": _number(last, "cur_prc", absolute=True),
+                "change_rate": 0,
+                "volume": _number(last, "trde_qty", absolute=True),
+                "trading_value": 0,
+                "market_cap": 0,
+                "found_at": datetime.now().strftime("%H:%M:%S"),
+                "bar_time": str(last.get("cntr_tm") or last.get("dt") or ""),
+            })
+        progress(5 + int((index + 1) / max(len(codes), 1) * 94),
+                 f"{index + 1:,}/{len(codes):,}개 종목 확인 중 · 신호 {len(results):,}개")
+    progress(100, f"{len(results):,}개 종목에서 신호를 찾았습니다.")
     return results
