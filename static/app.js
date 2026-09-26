@@ -122,11 +122,11 @@ function newCondition() {
   state.draft = {
     id: null,
     name: "",
-    mode: "custom",
+    mode: "signal",
     raw_text: "",
-    rules: [{ field: "change_rate", operator: "gte", value: 3 }],
+    rules: [],
     markets: ["KOSPI", "KOSDAQ"],
-    exclusions: ["ETF", "ETN", "스팩"],
+    exclusions: [],
     timeframe: "",
   };
   renderConditionList();
@@ -163,6 +163,7 @@ function renderEditor() {
   $("#customEditor").classList.toggle("hidden", isKiwoom);
   $("#saveButton").classList.toggle("hidden", isKiwoom);
   $("#copyButton").classList.toggle("hidden", isKiwoom);
+  $("#copyButton").textContent = isSignal ? "수식 복사" : "조건식 복사";
   $("#deleteButton").classList.toggle("hidden", !state.draft.id);
 
   if (!isKiwoom) {
@@ -173,11 +174,7 @@ function renderEditor() {
     });
     $("#conditionText").value = state.draft.raw_text || "";
     $("#signalTimeframe").value = state.draft.timeframe || "";
-    $("#signalKospi").checked = state.draft.markets.includes("KOSPI");
-    $("#signalKosdaq").checked = state.draft.markets.includes("KOSDAQ");
-    $("#signalOptions").classList.toggle("hidden", !isSignal);
     $("#parsePreview").classList.add("hidden");
-    activateTab(isSignal ? "paste" : "simple");
     renderRules();
   }
 }
@@ -185,6 +182,7 @@ function renderEditor() {
 function chooseUnit(rule) {
   const units = unitDefinitions[rule.field] || [{ value: 1, label: "" }];
   if (rule._unit && units.some((item) => item.value === rule._unit)) return rule._unit;
+  if (rule.field === "market_cap" || rule.field === "trading_value") return 100000000;
   const preferred = [...units].reverse().find((item) => Math.abs(Number(rule.value || 0)) >= item.value);
   return (preferred || units[0]).value;
 }
@@ -192,7 +190,7 @@ function chooseUnit(rule) {
 function renderRules() {
   const list = $("#ruleList");
   if (!state.draft.rules.length) {
-    list.innerHTML = '<div class="rule-empty">조건을 한 개 이상 추가해 주세요.</div>';
+    list.innerHTML = '<div class="rule-empty">추가 필터 없음 · 수식만으로 검색합니다.</div>';
     return;
   }
   list.innerHTML = state.draft.rules.map((rule, index) => {
@@ -204,19 +202,19 @@ function renderRules() {
     const unitOptions = (unitDefinitions[rule.field] || []).map((item) => `<option value="${item.value}" ${item.value === unit ? "selected" : ""}>${item.label}</option>`).join("");
     return `
       <div class="rule-row ${range ? "range" : ""}" data-index="${index}">
-        <select class="rule-field" aria-label="조건 항목">${fieldOptions}</select>
+        <select class="rule-field" aria-label="필터 항목">${fieldOptions}</select>
         <select class="rule-operator" aria-label="비교 방법">${operatorOptions}</select>
-        <input class="value-input rule-value" type="number" step="any" value="${Number(rule.value || 0) / unit}" aria-label="조건 값">
-        ${range ? `<span class="range-separator">~</span><input class="value-input rule-value2" type="number" step="any" value="${Number(rule.value2 || 0) / unit}" aria-label="범위 끝 값">` : ""}
+        <input class="value-input rule-value" type="number" step="any" value="${rule.value == null ? "" : Number(rule.value) / unit}" placeholder="숫자 입력" aria-label="필터 값">
+        ${range ? `<span class="range-separator">~</span><input class="value-input rule-value2" type="number" step="any" value="${rule.value2 == null ? "" : Number(rule.value2) / unit}" placeholder="숫자 입력" aria-label="범위 끝 값">` : ""}
         <select class="rule-unit" aria-label="단위">${unitOptions}</select>
-        <button class="remove-rule" type="button" aria-label="이 조건 삭제">×</button>
+        <button class="remove-rule" type="button" aria-label="이 필터 삭제">×</button>
       </div>`;
   }).join("");
 
   $$(".rule-row").forEach((row) => {
     const index = Number(row.dataset.index);
     row.querySelector(".rule-field").addEventListener("change", (event) => {
-      state.draft.rules[index] = { field: event.target.value, operator: "gte", value: 0 };
+      state.draft.rules[index] = { field: event.target.value, operator: "gte", value: null };
       renderRules();
     });
     row.querySelector(".rule-operator").addEventListener("change", (event) => {
@@ -243,45 +241,24 @@ function renderRules() {
 function syncRuleRow(row, index) {
   const unit = Number(row.querySelector(".rule-unit").value || 1);
   const rule = state.draft.rules[index];
-  rule.value = Number(row.querySelector(".rule-value").value || 0) * unit;
+  const firstValue = row.querySelector(".rule-value").value.trim();
+  rule.value = firstValue === "" ? null : Number(firstValue) * unit;
   rule._unit = unit;
   const value2 = row.querySelector(".rule-value2");
-  if (value2) rule.value2 = Number(value2.value || 0) * unit;
+  if (value2) rule.value2 = value2.value.trim() === "" ? null : Number(value2.value) * unit;
 }
 
 function syncDraftFromForm() {
   if (!state.draft || state.draft.mode === "kiwoom") return;
   state.draft.name = $("#conditionName").value.trim();
   state.draft.raw_text = $("#conditionText").value.trim();
-  if (state.draft.mode === "signal") {
-    state.draft.timeframe = $("#signalTimeframe").value;
-    state.draft.markets = [$("#signalKospi").checked ? "KOSPI" : null,
-      $("#signalKosdaq").checked ? "KOSDAQ" : null].filter(Boolean);
-    return;
-  }
+  state.draft.timeframe = $("#signalTimeframe").value;
   $$(".rule-row").forEach((row) => syncRuleRow(row, Number(row.dataset.index)));
   state.draft.markets = [
     $("#marketKospi").checked ? "KOSPI" : null,
     $("#marketKosdaq").checked ? "KOSDAQ" : null,
   ].filter(Boolean);
   state.draft.exclusions = $$(".exclusion-check:checked").map((input) => input.value);
-}
-
-function activateTab(name) {
-  if (name === "simple" && state.draft?.mode === "signal") {
-    if (!confirm("차트 수식을 일반 조건으로 바꾸면 붙여넣은 수식이 지워집니다. 계속할까요?")) return;
-    state.draft.mode = "custom";
-    state.draft.raw_text = "";
-    $("#conditionText").value = "";
-    if (!state.draft.rules.length) state.draft.rules = [{ field: "price", operator: "gte", value: 10000 }];
-    renderRules();
-    $("#signalOptions").classList.add("hidden");
-    $("#conditionTypeBadge").textContent = "직접 만든 조건식";
-    $("#searchDescription").textContent = "현재 시세를 기준으로 검색합니다.";
-  }
-  $$(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === name));
-  $("#simpleTab").classList.toggle("hidden", name !== "simple");
-  $("#pasteTab").classList.toggle("hidden", name !== "paste");
 }
 
 async function parsePastedCondition() {
@@ -291,27 +268,17 @@ async function parsePastedCondition() {
   try {
     const data = await api("/api/parse", { method: "POST", body: JSON.stringify({ text }) });
     const parsed = data.parsed;
-    state.draft.mode = parsed.mode;
+    if (parsed.mode !== "signal") throw new Error("차트 수식을 붙여넣어 주세요. 시가총액 등은 아래 추가 필터에서 설정합니다.");
+    state.draft.mode = "signal";
     state.draft.raw_text = text;
-    state.draft.rules = parsed.rules;
-    state.draft.markets = parsed.markets;
-    state.draft.exclusions = parsed.exclusions;
-    $("#signalOptions").classList.toggle("hidden", parsed.mode !== "signal");
-    $("#conditionTypeBadge").textContent = parsed.mode === "signal" ? "차트 수식" : "직접 만든 조건식";
-    $("#searchDescription").textContent = parsed.mode === "signal"
-      ? "가장 최근 봉의 신호를 확인합니다. 장중에는 신호가 바뀔 수 있습니다."
-      : "현재 시세를 기준으로 검색합니다.";
-    if (parsed.mode === "signal") {
-      $("#signalKospi").checked = true;
-      $("#signalKosdaq").checked = true;
-      $("#signalTimeframe").value = state.draft.timeframe || "";
-    }
+    $("#conditionTypeBadge").textContent = "차트 수식";
+    $("#searchDescription").textContent = "가장 최근 봉의 신호를 확인합니다. 장중에는 신호가 바뀔 수 있습니다.";
     if (parsed.name) {
       state.draft.name = parsed.name;
       $("#conditionName").value = parsed.name;
     }
     renderParsePreview(parsed);
-    showToast("조건식을 확인했습니다.");
+    showToast("수식을 확인했습니다. 추가 필터는 그대로 유지됩니다.");
     return true;
   } catch (error) {
     showToast(error.message, true);
@@ -323,28 +290,22 @@ async function parsePastedCondition() {
 
 function renderParsePreview(parsed) {
   const preview = $("#parsePreview");
-  const marketLabel = parsed.markets.map((item) => item === "KOSPI" ? "코스피" : "코스닥").join(", ");
-  const chips = [
-    parsed.description || "",
-    marketLabel ? `시장: ${marketLabel}` : "",
-    ...parsed.rules.map((rule) => rule.label),
-    parsed.exclusions.length ? `제외: ${parsed.exclusions.join(", ")}` : "",
-  ].filter(Boolean);
-  const warnings = parsed.warnings.length
-    ? `<ul class="warning-list">${parsed.warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul>`
-    : "";
   preview.innerHTML = `
-    <h3>이렇게 이해했습니다</h3>
-    <div class="preview-chips">${chips.map((chip) => `<span class="preview-chip">${escapeHtml(chip)}</span>`).join("")}</div>
-    ${warnings}`;
+    <h3>수식 확인 완료</h3>
+    <div class="preview-chips"><span class="preview-chip">${escapeHtml(parsed.description || "차트 수식")}</span></div>`;
   preview.classList.remove("hidden");
 }
 
 async function saveCondition() {
   if (!state.draft) return null;
   if (state.draft.mode === "kiwoom") return state.draft;
-  if ($(".tab.active")?.dataset.tab === "paste" && $("#conditionText").value.trim()
-      && $("#conditionText").value.trim() !== state.draft.raw_text) {
+  const formulaText = $("#conditionText").value.trim();
+  if (!formulaText && state.draft.mode === "signal") {
+    showToast("검색할 수식을 붙여넣어 주세요.", true);
+    $("#conditionText").focus();
+    return null;
+  }
+  if (formulaText && formulaText !== state.draft.raw_text) {
     if (!await parsePastedCondition()) return null;
   }
   syncDraftFromForm();
@@ -363,7 +324,7 @@ async function saveCondition() {
     return null;
   }
   if (state.draft.mode === "custom" && !state.draft.rules.length) {
-    showToast("검색 조건을 한 개 이상 추가해 주세요.", true);
+    showToast("기존 필터 조건식에는 필터가 한 개 이상 필요합니다.", true);
     return null;
   }
   const payload = { ...state.draft, id: undefined };
@@ -816,10 +777,9 @@ function bindEvents() {
   $("#welcomeNewButton").addEventListener("click", newCondition);
   $("#importKiwoomButton").addEventListener("click", importKiwoomConditions);
   $("#addRuleButton").addEventListener("click", () => {
-    state.draft.rules.push({ field: "price", operator: "gte", value: 10000 });
+    state.draft.rules.push({ field: "market_cap", operator: "gte", value: null, _unit: 100000000 });
     renderRules();
   });
-  $$(".tab").forEach((button) => button.addEventListener("click", () => activateTab(button.dataset.tab)));
   $("#parseButton").addEventListener("click", parsePastedCondition);
   $("#saveButton").addEventListener("click", saveCondition);
   $("#deleteButton").addEventListener("click", deleteCondition);

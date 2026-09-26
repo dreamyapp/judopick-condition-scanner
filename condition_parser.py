@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import math
 from dataclasses import dataclass
 
 
@@ -221,11 +222,15 @@ def validate_rule(rule: dict) -> dict:
     try:
         value = float(rule.get("value"))
     except (TypeError, ValueError):
-        raise ValueError("조건 값을 숫자로 입력해 주세요.") from None
+        raise ValueError("필터 값을 숫자로 입력해 주세요.") from None
+    if not math.isfinite(value):
+        raise ValueError("필터 값을 숫자로 입력해 주세요.")
     value2 = None
     if operator == "between":
         try:
             value2 = float(rule.get("value2"))
         except (TypeError, ValueError):
             raise ValueError("범위의 끝 값을 숫자로 입력해 주세요.") from None
+        if not math.isfinite(value2):
+            raise ValueError("범위의 끝 값을 숫자로 입력해 주세요.")
     return _rule(field, operator, value, value2)

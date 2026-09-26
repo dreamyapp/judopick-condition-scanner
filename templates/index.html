@@ -62,75 +62,63 @@
         </div>
 
         <div id="customEditor">
-          <div class="tabs" role="tablist" aria-label="조건 입력 방법">
-            <button class="tab active" data-tab="simple" type="button" role="tab">하나씩 만들기</button>
-            <button class="tab" data-tab="paste" type="button" role="tab">전체 조건식 붙여넣기</button>
-          </div>
-
-          <div id="simpleTab" class="tab-panel">
-            <div class="section-block">
-              <h3>어느 시장에서 찾을까요?</h3>
-              <div class="choice-row">
-                <label class="check-card"><input id="marketKospi" type="checkbox" checked><span>코스피</span></label>
-                <label class="check-card"><input id="marketKosdaq" type="checkbox" checked><span>코스닥</span></label>
-              </div>
-            </div>
-
-            <div class="section-block">
-              <div class="section-title-row">
-                <div>
-                  <h3>검색 조건</h3>
-                  <p>입력한 조건을 모두 만족하는 종목을 찾습니다.</p>
-                </div>
-                <button id="addRuleButton" class="button button-light" type="button">＋ 조건 추가</button>
-              </div>
-              <div id="ruleList" class="rule-list"></div>
-            </div>
-
-            <div class="section-block compact-block">
-              <h3>검색에서 제외</h3>
-              <div class="choice-row wrap">
-                <label class="check-card"><input class="exclusion-check" type="checkbox" value="ETF" checked><span>ETF</span></label>
-                <label class="check-card"><input class="exclusion-check" type="checkbox" value="ETN" checked><span>ETN</span></label>
-                <label class="check-card"><input class="exclusion-check" type="checkbox" value="스팩" checked><span>스팩</span></label>
-                <label class="check-card"><input class="exclusion-check" type="checkbox" value="우선주"><span>우선주</span></label>
-              </div>
-            </div>
-          </div>
-
-          <div id="pasteTab" class="tab-panel hidden">
-            <div class="section-block paste-block">
-              <label class="field-label" for="conditionText">전체 조건식을 붙여넣어 주세요</label>
-              <textarea id="conditionText" rows="9" placeholder="조건식명: 거래량 급증주&#10;시장: 코스피, 코스닥&#10;등락률: 3% 이상&#10;거래대금: 100억 원 이상&#10;제외: ETF, ETN, 스팩"></textarea>
-              <p class="paste-hint">수식을 한 번에 붙여넣고, 아래에서 차트 봉을 선택하세요.</p>
-              <button id="parseButton" class="button button-secondary button-large" type="button">조건식 확인</button>
-              <details class="formula-help">
-                <summary>직접 수식 만들기 도움말</summary>
-                <p>O 시가 · H 고가 · L 저가 · C 종가 · V 거래량 · DATE 날짜</p>
-                <p>MA(C,20) 20봉 평균 · EMA(C,20) 지수평균 · SUM(V,5) 5봉 합계 · C(1) 이전 봉 종가</p>
-                <p>IF, VALUEWHEN, CROSSUP, CROSSDOWN, HHV, LLV도 사용할 수 있습니다. 마지막 줄은 신호가 참일 때의 식으로 끝내세요.</p>
-                <code>예: C &gt; MA(C,20) &amp;&amp; C(1) &lt;= REF(MA(C,20),1)</code>
-              </details>
-            </div>
-            <div id="signalOptions" class="section-block signal-options hidden">
-              <h3>신호를 찾을 차트 봉</h3>
-              <p>수식을 적용한 차트와 같은 봉을 선택해 주세요.</p>
-              <select id="signalTimeframe" aria-label="차트 봉 선택" required>
-                <option value="">차트 봉 선택</option>
-                <option value="1">1분봉</option><option value="3">3분봉</option>
-                <option value="5">5분봉</option><option value="10">10분봉</option>
-                <option value="15">15분봉</option><option value="30">30분봉</option>
-                <option value="45">45분봉</option><option value="60">60분봉</option>
-                <option value="D">일봉</option>
-              </select>
-              <h3>검색할 시장</h3>
-              <div class="choice-row">
-                <label class="check-card"><input id="signalKospi" type="checkbox" checked><span>코스피</span></label>
-                <label class="check-card"><input id="signalKosdaq" type="checkbox" checked><span>코스닥</span></label>
-              </div>
-              <p>종목별 차트를 조회하므로 전체 검색은 몇 분 이상 걸릴 수 있습니다. 검색 중 앱을 켜 두세요.</p>
-            </div>
+          <div class="section-block paste-block">
+            <label class="field-label" for="conditionText">검색 수식 전체 붙여넣기</label>
+            <textarea id="conditionText" rows="5" placeholder="예: A=MA(C,20);&#10;C&gt;A &amp;&amp; C(1)&lt;=A(1)"></textarea>
+            <p class="paste-hint">마지막 줄은 신호 조건입니다. 시가총액 등은 아래 추가 필터에서 설정하세요.</p>
+            <button id="parseButton" class="button button-secondary button-large" type="button">수식 확인</button>
+            <details class="formula-help">
+              <summary>수식 도움말</summary>
+              <p>O 시가 · H 고가 · L 저가 · C 종가 · V 거래량 · DATE 날짜</p>
+              <p>MA(C,20) 20봉 평균 · EMA(C,20) 지수평균 · SUM(V,5) 5봉 합계 · C(1) 이전 봉 종가</p>
+              <p>IF, VALUEWHEN, CROSSUP, CROSSDOWN, HHV, LLV도 사용할 수 있습니다.</p>
+              <code>예: C &gt; MA(C,20) &amp;&amp; C(1) &lt;= REF(MA(C,20),1)</code>
+            </details>
             <div id="parsePreview" class="preview-box hidden" aria-live="polite"></div>
+          </div>
+
+          <div id="signalOptions" class="section-block signal-options">
+            <h3>차트 봉 선택</h3>
+            <p>붙여넣은 수식을 적용할 분봉 또는 일봉을 선택해 주세요.</p>
+            <select id="signalTimeframe" aria-label="차트 봉 선택" required>
+              <option value="">차트 봉 선택</option>
+              <option value="1">1분봉</option><option value="3">3분봉</option>
+              <option value="5">5분봉</option><option value="10">10분봉</option>
+              <option value="15">15분봉</option><option value="30">30분봉</option>
+              <option value="45">45분봉</option><option value="60">60분봉</option>
+              <option value="D">일봉</option>
+            </select>
+            <p>종목별 차트를 조회하므로 전체 검색은 몇 분 이상 걸릴 수 있습니다.</p>
+          </div>
+
+          <div class="section-block">
+            <div class="section-title-row">
+              <div>
+                <h3>추가 필터 <span class="optional-label">선택</span></h3>
+                <p>기본은 필터 없음입니다. 필요한 항목만 추가하고 언제든 삭제할 수 있습니다.</p>
+                <p>시가총액·거래대금 등은 검색 시점의 종목 정보로 확인합니다.</p>
+              </div>
+              <button id="addRuleButton" class="button button-light" type="button">＋ 필터 추가</button>
+            </div>
+            <div id="ruleList" class="rule-list"></div>
+          </div>
+
+          <div class="section-block compact-block">
+            <h3>검색할 시장</h3>
+            <div class="choice-row">
+              <label class="check-card"><input id="marketKospi" type="checkbox" checked><span>코스피</span></label>
+              <label class="check-card"><input id="marketKosdaq" type="checkbox" checked><span>코스닥</span></label>
+            </div>
+          </div>
+
+          <div class="section-block compact-block">
+            <h3>제외할 종목 <span class="optional-label">선택</span></h3>
+            <div class="choice-row wrap">
+              <label class="check-card"><input class="exclusion-check" type="checkbox" value="ETF"><span>ETF</span></label>
+              <label class="check-card"><input class="exclusion-check" type="checkbox" value="ETN"><span>ETN</span></label>
+              <label class="check-card"><input class="exclusion-check" type="checkbox" value="스팩"><span>스팩</span></label>
+              <label class="check-card"><input class="exclusion-check" type="checkbox" value="우선주"><span>우선주</span></label>
+            </div>
           </div>
         </div>
 

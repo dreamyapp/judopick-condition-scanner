@@ -19,7 +19,7 @@ from scanner import scan_custom, scan_kiwoom, scan_signal
 from signal_formula import TIMEFRAMES, looks_like_signal_formula, parse_signal_formula, validate_signal_formula
 
 
-APP_VERSION = "0.4.1"
+APP_VERSION = "0.5.0"
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,9 @@ def _condition_summary(condition: dict) -> str:
         return "영웅문에 저장된 조건식"
     if condition.get("mode") == "signal":
         timeframe = condition.get("timeframe") or "?"
-        return f"{'일봉' if timeframe == 'D' else timeframe + '분봉'} · 직접 만든 수식"
+        filter_count = len(condition.get("rules") or [])
+        suffix = f" · 추가 필터 {filter_count}개" if filter_count else ""
+        return f"{'일봉' if timeframe == 'D' else timeframe + '분봉'} · 직접 만든 수식{suffix}"
     labels = [rule.get("label", "") for rule in condition.get("rules", []) if rule.get("label")]
     return " · ".join(labels) if labels else "조건을 입력해 주세요"
 
@@ -178,7 +180,7 @@ def create_condition():
             validate_signal_formula(str(payload.get("raw_text", "")))
             if str(payload.get("timeframe", "")) not in TIMEFRAMES:
                 raise ValueError("검색할 차트 봉을 선택해 주세요.")
-            payload["rules"] = []
+            payload["rules"] = [validate_rule(rule) for rule in payload.get("rules", [])]
         elif payload.get("mode", "custom") == "custom":
             if looks_like_signal_formula(str(payload.get("raw_text", ""))):
                 raise ValueError("수식은 '조건식 확인'을 눌러 확인해 주세요.")
@@ -204,7 +206,7 @@ def update_condition(condition_id: str):
             validate_signal_formula(str(payload.get("raw_text", "")))
             if str(payload.get("timeframe", "")) not in TIMEFRAMES:
                 raise ValueError("검색할 차트 봉을 선택해 주세요.")
-            payload["rules"] = []
+            payload["rules"] = [validate_rule(rule) for rule in payload.get("rules", [])]
         condition = storage.save_condition(payload, condition_id)
         condition["summary"] = _condition_summary(condition)
         return _ok(condition=condition)

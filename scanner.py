@@ -165,6 +165,7 @@ def scan_signal(
     timeframe = str(condition.get("timeframe", ""))
     if timeframe not in TIMEFRAMES:
         raise ValueError("검색할 차트 봉을 선택해 주세요.")
+    rules = [validate_rule(rule) for rule in condition.get("rules", [])]
     client = client or KiwoomClient()
     progress = progress or (lambda percent, message: None)
     markets = condition.get("markets") or ["KOSPI", "KOSDAQ"]
@@ -183,6 +184,25 @@ def scan_signal(
                 row["_market"] = market
                 universe[code] = row
     codes = list(universe)
+    matching_quotes: dict[str, dict] = {}
+    if rules and codes:
+        candidates = []
+        batch_size = 30
+        total_batches = (len(codes) + batch_size - 1) // batch_size
+        for batch_index, start in enumerate(range(0, len(codes), batch_size)):
+            batch = codes[start:start + batch_size]
+            for row in client.stock_quotes(batch):
+                stock = normalize_quote(row, universe)
+                if stock["code"] in universe and matches_all(stock, rules):
+                    if stock["code"] not in matching_quotes:
+                        candidates.append(stock["code"])
+                    matching_quotes[stock["code"]] = stock
+            progress(5 + int((batch_index + 1) / total_batches * 25),
+                     f"추가 필터 확인 중 · {min(start + batch_size, len(codes)):,}/{len(codes):,}개")
+            if batch_index + 1 < total_batches:
+                time.sleep(0.2)
+        codes = candidates
+        progress(30, f"추가 필터를 통과한 {len(codes):,}개 종목의 수식을 확인합니다.")
     results = []
     for index, code in enumerate(codes):
         if index:
@@ -190,19 +210,21 @@ def scan_signal(
         bars = client.daily_chart(code) if timeframe == "D" else client.minute_chart(code, timeframe)
         matched, last = evaluate_latest(compiled, bars)
         if matched and last:
+            quote = matching_quotes.get(code, {})
             results.append({
                 "code": code,
                 "name": universe[code]["name"],
                 "market": universe[code]["_market"],
                 "price": _number(last, "cur_prc", absolute=True),
-                "change_rate": 0,
+                "change_rate": quote.get("change_rate", 0),
                 "volume": _number(last, "trde_qty", absolute=True),
-                "trading_value": 0,
-                "market_cap": 0,
+                "trading_value": quote.get("trading_value", 0),
+                "market_cap": quote.get("market_cap", 0),
                 "found_at": datetime.now().strftime("%H:%M:%S"),
                 "bar_time": str(last.get("cntr_tm") or last.get("dt") or ""),
             })
-        progress(5 + int((index + 1) / max(len(codes), 1) * 94),
+        start_percent = 30 if rules else 5
+        progress(start_percent + int((index + 1) / max(len(codes), 1) * (99 - start_percent)),
                  f"{index + 1:,}/{len(codes):,}개 종목 확인 중 · 신호 {len(results):,}개")
     progress(99, f"{len(results):,}개 종목의 조회를 마쳤습니다. 결과를 준비하고 있습니다.")
     return results

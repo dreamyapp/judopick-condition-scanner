@@ -49,8 +49,8 @@ app = BUNDLE(
     info_plist={
         "CFBundleDisplayName": "주도픽 조건검색",
         "CFBundleName": "주도픽 조건검색",
-        "CFBundleShortVersionString": "0.4.1",
-        "CFBundleVersion": "0.4.1",
+        "CFBundleShortVersionString": "0.5.0",
+        "CFBundleVersion": "0.5.0",
         "LSApplicationCategoryType": "public.app-category.finance",
         "NSHighResolutionCapable": True,
     },

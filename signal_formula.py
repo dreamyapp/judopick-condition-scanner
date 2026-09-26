@@ -37,7 +37,7 @@ def parse_signal_formula(text: str) -> dict:
     description = validate_signal_formula(text)
     return {
         "name": "", "mode": "signal", "rules": [],
-        "markets": ["KOSPI", "KOSDAQ"], "exclusions": ["ETF", "ETN", "스팩"],
+        "markets": ["KOSPI", "KOSDAQ"], "exclusions": [],
         "warnings": [], "description": description,
     }
 

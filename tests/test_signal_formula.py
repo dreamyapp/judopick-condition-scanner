@@ -4,6 +4,7 @@ import sqlite3
 from signal_formula import parse_signal_formula, signal_on_latest_bar, validate_signal_formula
 from scanner import scan_signal
 import storage
+import app as app_module
 
 
 FORMULA = """TP=(H+L+C)/3;
@@ -89,6 +90,59 @@ def test_scan_signal_uses_latest_chart(monkeypatch):
     results = scan_signal({"raw_text": FORMULA, "timeframe": "5",
                            "markets": ["KOSPI"], "exclusions": []}, client=FakeClient())
     assert [item["code"] for item in results] == ["000001"]
+
+
+def test_optional_filters_narrow_candidates_before_chart_request(monkeypatch):
+    monkeypatch.setattr("scanner.time.sleep", lambda _: None)
+
+    class FilterClient:
+        chart_codes = []
+
+        def stock_list(self, market):
+            return [{"code": "000001", "name": "낮은 시총"},
+                    {"code": "000002", "name": "필터 통과"},
+                    {"code": "000003", "name": "낮은 거래대금"}]
+
+        def stock_quotes(self, codes):
+            assert codes == ["000001", "000002", "000003"]
+            return [{"stk_cd": "000001", "mac": "1000", "trde_prica": "60000"},
+                    {"stk_cd": "000002", "mac": "3000", "trde_prica": "60000"},
+                    {"stk_cd": "000003", "mac": "3000", "trde_prica": "10000"}]
+
+        def minute_chart(self, code, timeframe):
+            self.chart_codes.append(code)
+            assert timeframe == "5"
+            return [bar("20260921", "1530", 10, 10, 10),
+                    bar("20260922", "0900", 11, 11, 11)]
+
+    client = FilterClient()
+    results = scan_signal({
+        "raw_text": "C>C(1)", "timeframe": "5", "markets": ["KOSPI"],
+        "rules": [
+            {"field": "market_cap", "operator": "gte", "value": 200_000_000_000},
+            {"field": "trading_value", "operator": "gte", "value": 50_000_000_000},
+        ],
+    }, client=client)
+    assert client.chart_codes == ["000002"]
+    assert [item["code"] for item in results] == ["000002"]
+    assert results[0]["market_cap"] == 300_000_000_000
+
+
+def test_signal_filters_are_saved_and_can_be_removed(tmp_path, monkeypatch):
+    monkeypatch.setattr(storage, "DB_PATH", tmp_path / "conditions.db")
+    storage.initialize()
+    client = app_module.app.test_client()
+    payload = {"name": "신호와 시총", "mode": "signal", "raw_text": "C>C(1)",
+               "timeframe": "5", "markets": ["KOSPI", "KOSDAQ"],
+               "exclusions": [], "rules": [{"field": "market_cap", "operator": "gte",
+                                          "value": 100_000_000_000}]}
+    created = client.post("/api/conditions", json=payload).json["condition"]
+    assert len(created["rules"]) == 1
+    assert "추가 필터 1개" in created["summary"]
+    payload["rules"] = []
+    updated = client.put(f"/api/conditions/{created['id']}", json=payload).json["condition"]
+    assert updated["rules"] == []
+    assert storage.get_condition(created["id"])["raw_text"] == "C>C(1)"
 
 
 def test_signal_condition_can_be_saved_without_changing_other_conditions(tmp_path, monkeypatch):

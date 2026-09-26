@@ -84,6 +84,30 @@ def test_browser_shows_results_empty_state_and_retry(tmp_path, monkeypatch):
                 assert page.locator("#retryResultsButton").is_visible()
                 page.locator("#retryResultsButton").click()
                 page.locator("#resultsBody tr").get_by_text("복구 종목").wait_for()
+
+                page.locator("#newConditionButton").click()
+                assert page.get_by_text("하나씩 만들기").count() == 0
+                assert page.locator(".rule-row").count() == 0
+                assert page.locator(".exclusion-check:checked").count() == 0
+                assert page.locator("#signalTimeframe").is_visible()
+                page.locator("#conditionName").fill("수식과 필터")
+                page.locator("#conditionText").fill("C>C(1)")
+                page.locator("#signalTimeframe").select_option("5")
+                page.locator("#addRuleButton").click()
+                assert page.locator(".rule-field").input_value() == "market_cap"
+                page.locator(".rule-value").fill("1000")
+                with page.expect_response(lambda response: response.url.endswith("/api/conditions")
+                                          and response.request.method == "POST"):
+                    page.locator("#saveButton").click()
+                page.locator(".rule-row").wait_for()
+                saved = next(item for item in storage.list_conditions() if item["name"] == "수식과 필터")
+                assert saved["rules"][0]["value"] == 100_000_000_000
+                assert saved["timeframe"] == "5"
+                page.locator(".remove-rule").click()
+                with page.expect_response(lambda response: response.url.endswith(f"/api/conditions/{saved['id']}")
+                                          and response.request.method == "PUT"):
+                    page.locator("#saveButton").click()
+                assert storage.get_condition(saved["id"])["rules"] == []
                 assert not errors
             finally:
                 browser.close()
